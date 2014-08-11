@@ -46,6 +46,7 @@ public interface Arguments {
   String ARG_GETCONF = "--getconf";
   String ARG_GETFILES = "--getfiles";
   String ARG_HELP = "--help";
+  String ARG_HISTORY = "--history";
   String ARG_ID = "--id";
   String ARG_IMAGE = "--image";
   String ARG_INTERNAL = "--internal";
