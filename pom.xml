@@ -72,6 +72,19 @@
       <url>http://slider.incubator.apache.org/</url>
     </site>
     <downloadUrl>http://git-wip-us.apache.org/repos/asf/incubator-slider.git</downloadUrl>
+    <repository>
+      <id>${distMgmtStagingId}</id>
+      <name>${distMgmtStagingName}</name>
+      <url>${distMgmtStagingUrl}</url>
+    </repository>
+    <snapshotRepository>
+      <id>${distMgmtSnapshotsId}</id>
+      <name>${distMgmtSnapshotsName}</name>
+      <url>${distMgmtSnapshotsUrl}</url>
+    </snapshotRepository>
+
+
+
   </distributionManagement>
   
   <mailingLists>
@@ -92,7 +105,12 @@
   </mailingLists>
 
   <properties>
-
+    <distMgmtSnapshotsId>apache.snapshots.https</distMgmtSnapshotsId>
+    <distMgmtSnapshotsName>Apache Development Snapshot Repository</distMgmtSnapshotsName>
+    <distMgmtSnapshotsUrl>https://repository.apache.org/content/repositories/snapshots</distMgmtSnapshotsUrl>
+    <distMgmtStagingId>apache.staging.https</distMgmtStagingId>
+    <distMgmtStagingName>Apache Release Distribution Repository</distMgmtStagingName>
+    <distMgmtStagingUrl>https://repository.apache.org/service/local/staging/deploy/maven2</distMgmtStagingUrl>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
@@ -118,10 +136,10 @@
     <!--
     core artifacts
     -->
-    <hadoop.version>2.4.1</hadoop.version>
+    <hadoop.version>2.6.0-SNAPSHOT</hadoop.version>
 
     <hbase.version>0.98.4-hadoop2</hbase.version>
-    <accumulo.version>1.6.0</accumulo.version>
+    <accumulo.version>1.6.1-SNAPSHOT</accumulo.version>
     
     <!--
      artifact versions
@@ -212,6 +230,16 @@
     <repository>
       <id>ASF Staging</id>
       <url>https://repository.apache.org/content/groups/staging/</url>
+    </repository>
+    <repository>
+      <id>ASF Snapshots</id>
+      <url>https://repository.apache.org/content/repositories/snapshots/</url>
+      <snapshots>
+        <enabled>true</enabled>
+      </snapshots>
+      <releases>
+        <enabled>false</enabled>
+      </releases>
     </repository>
   </repositories>
 
@@ -343,9 +371,9 @@
             <exclude>**/dfs.exclude</exclude>
             <exclude>**/*.iml</exclude>
             <exclude>**/rat.txt</exclude>
-            <exclude>**/get-hbase-site.sh</exclude>
             <exclude>DISCLAIMER</exclude>
             <exclude>app-packages/hbase/target/**</exclude>
+            <exclude>target/*</exclude>
           </excludes>
         </configuration>
       </plugin>
@@ -1296,7 +1324,7 @@
     </profile>
     
     <profile>
-      <!-- hadoop branch-2 builds  -->
+      <!-- hadoop trunk builds  -->
       <id>hadoop-trunk</id>
       <properties>
         <hadoop.version>3.0.0-SNAPSHOT</hadoop.version>
@@ -1387,7 +1415,26 @@
 
     </build>
     </profile>
-
+    <profile>
+      <id>sign</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>sign</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
   </profiles>
 
 

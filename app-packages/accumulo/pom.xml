@@ -30,12 +30,17 @@
 
   <properties>
     <work.dir>package-tmp</work.dir>
-    <app.package.name>apache-slider-accumulo-${accumulo.version}-app-package-${project.version}</app.package.name>
+    <app.package.name>${project.artifactId}-${project.version}</app.package.name>
   </properties>
 
   <profiles>
     <profile>
       <id>accumulo-app-package</id>
+      <activation>
+        <property>
+          <name>!skipAccumulo</name>
+        </property>
+      </activation>
       <build>
         <plugins>
           <plugin>
@@ -146,15 +151,43 @@
       <version>${accumulo.version}</version>
       <classifier>bin</classifier>
       <type>tar.gz</type>
+      <exclusions>
+        <exclusion>
+          <groupId>org.apache.accumulo</groupId>
+          <artifactId>accumulo-fate</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.apache.accumulo</groupId>
+          <artifactId>accumulo-gc</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.apache.accumulo</groupId>
+          <artifactId>accumulo-master</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.apache.accumulo</groupId>
+          <artifactId>accumulo-minicluster</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
-      <groupId>junit</groupId>
-      <artifactId>junit</artifactId>
-      <scope>test</scope>
+      <groupId>org.apache.accumulo</groupId>
+      <artifactId>accumulo-server-base</artifactId>
+      <version>${accumulo.version}</version>
     </dependency>
     <dependency>
       <groupId>org.apache.accumulo</groupId>
       <artifactId>accumulo-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.hadoop</groupId>
+      <artifactId>hadoop-client</artifactId>
+      <version>${hadoop.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>

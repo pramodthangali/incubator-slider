@@ -49,11 +49,8 @@ import org.apache.slider.core.main.ServiceLauncher
 import org.apache.slider.core.main.ServiceLauncherBaseTest
 import org.apache.slider.server.appmaster.SliderAppMaster
 import org.junit.After
-import org.junit.Assert
-import org.junit.Before
 import org.junit.BeforeClass
 import org.junit.Rule
-import org.junit.rules.TestName
 import org.junit.rules.Timeout
 
 import static org.apache.slider.test.KeysForTests.*
@@ -64,7 +61,7 @@ import static org.apache.slider.common.SliderXMLConfKeysForTesting.*;
  * Base class for mini cluster tests -creates a field for the
  * mini yarn cluster
  */
-@CompileStatic
+//@CompileStatic
 @Slf4j
 public abstract class YarnMiniClusterTestBase extends ServiceLauncherBaseTest {
   /**
@@ -129,12 +126,14 @@ public abstract class YarnMiniClusterTestBase extends ServiceLauncherBaseTest {
           KEY_TEST_TIMEOUT,
           DEFAULT_TEST_TIMEOUT_SECONDS * 1000)
   )
+
+  /**
+   * Clent side test: validate system env before launch
+   */
   @BeforeClass
-  public static void checkWindowsSupport() {
-    if (Shell.WINDOWS) {
-      assertNotNull("winutils.exe not found", Shell.WINUTILS)
-    }
-  } 
+  public static void checkClientEnv() {
+    SliderUtils.validateSliderClientEnvironment(null)
+  }
 
   protected String buildClustername(String clustername) {
     return clustername ?: createClusterName()
@@ -240,11 +239,16 @@ public abstract class YarnMiniClusterTestBase extends ServiceLauncherBaseTest {
                                    int numLocalDirs,
                                    int numLogDirs,
                                    boolean startHDFS) {
+   
     conf.setInt(YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_MB, 64);
     conf.set(YarnConfiguration.RM_SCHEDULER, FIFO_SCHEDULER);
     SliderUtils.patchConfiguration(conf)
     name = buildClustername(name)
-    miniCluster = new MiniYARNCluster(name, noOfNodeManagers, numLocalDirs, numLogDirs)
+    miniCluster = new MiniYARNCluster(
+        name,
+        noOfNodeManagers,
+        numLocalDirs,
+        numLogDirs)
     miniCluster.init(conf)
     miniCluster.start();
     if (startHDFS) {
@@ -319,27 +323,6 @@ public abstract class YarnMiniClusterTestBase extends ServiceLauncherBaseTest {
    */
   public void killAM(int signal) {
     killJavaProcesses(SliderAppMaster.SERVICE_CLASSNAME_SHORT, signal)
-  }
-
-  /**
-   * Kill any java process with the given grep pattern
-   * @param grepString string to grep for
-   */
-  public void killJavaProcesses(String grepString, int signal) {
-
-    GString bashCommand = "jps -l| grep ${grepString} | awk '{print \$1}' | xargs kill $signal"
-    log.info("Bash command = $bashCommand" )
-    Process bash = ["bash", "-c", bashCommand].execute()
-    bash.waitFor()
-
-    log.info(bash.in.text)
-    log.error(bash.err.text)
-  }
-
-  public void killJavaProcesses(List<String> greps, int signal) {
-    for (String grep : greps) {
-      killJavaProcesses(grep,signal)
-    }
   }
 
   /**
@@ -726,15 +709,15 @@ public abstract class YarnMiniClusterTestBase extends ServiceLauncherBaseTest {
    * @return the exit code
    */
   public int clusterActionFreeze(SliderClient sliderClient, String clustername,
-                                 String message = "action freeze") {
-    log.info("Freezing cluster $clustername: $message")
+                                 String message = "action stop") {
+    log.info("Stopping cluster $clustername: $message")
     ActionFreezeArgs freezeArgs  = new ActionFreezeArgs();
     freezeArgs.waittime = CLUSTER_STOP_TIME
     freezeArgs.message = message
     int exitCode = sliderClient.actionFreeze(clustername,
         freezeArgs);
     if (exitCode != 0) {
-      log.warn("Cluster freeze failed with error code $exitCode")
+      log.warn("Cluster stop failed with error code $exitCode")
     }
     return exitCode
   }

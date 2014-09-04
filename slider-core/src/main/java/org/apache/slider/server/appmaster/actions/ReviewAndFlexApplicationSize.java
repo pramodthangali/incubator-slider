@@ -1,7 +1,4 @@
-<?xml version="1.0"?>
-<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
-<!--
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -18,22 +15,29 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
--->
 
-<configuration>
-  <property>
-    <name>storm_user</name>
-    <value>storm</value>
-    <description></description>
-  </property>
-  <property>
-    <name>storm_log_dir</name>
-    <value>/var/log/storm</value>
-    <description></description>
-  </property>
-  <property>
-    <name>storm_pid_dir</name>
-    <value>/var/run/storm</value>
-    <description></description>
-  </property>
-</configuration>
+package org.apache.slider.server.appmaster.actions;
+
+import org.apache.slider.server.appmaster.SliderAppMaster;
+import org.apache.slider.server.appmaster.state.AppState;
+
+import java.util.concurrent.TimeUnit;
+
+/**
+ * Tell the AM to execute the full flex review operation
+ */
+public class ReviewAndFlexApplicationSize extends AsyncAction{
+
+  public ReviewAndFlexApplicationSize(String name,
+      long delay,
+      TimeUnit timeUnit) {
+    super(name, delay, timeUnit, ATTR_REVIEWS_APP_SIZE);
+  }
+
+  @Override
+  public void execute(SliderAppMaster appMaster,
+      QueueAccess queueService,
+      AppState appState) throws Exception {
+    appMaster.handleReviewAndFlexApplicationSize(this);
+  }
+}

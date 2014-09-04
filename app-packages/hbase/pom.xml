@@ -19,7 +19,7 @@
   <parent>
     <groupId>org.apache.slider</groupId>
     <artifactId>slider</artifactId>
-    <version>0.41.0-incubating-SNAPSHOT</version>
+    <version>0.51.0-incubating-SNAPSHOT</version>
     <relativePath>../../pom.xml</relativePath>
   </parent>
   <modelVersion>4.0.0</modelVersion>
@@ -29,7 +29,7 @@
   <description>Slider HBase App Package</description>
   <properties>
     <work.dir>package-tmp</work.dir>
-    <app.package.name>apache-slider-hbase-${hbase.version}-app-package-${project.version}</app.package.name>
+    <app.package.name>${project.artifactId}-${project.version}</app.package.name>
   </properties>
 
   <profiles>

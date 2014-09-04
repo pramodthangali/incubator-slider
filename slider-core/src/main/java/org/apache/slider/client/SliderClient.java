@@ -26,6 +26,9 @@ import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.net.NetUtils;
 import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hadoop.security.alias.CredentialProvider;
+import org.apache.hadoop.security.alias.CredentialProviderFactory;
+import org.apache.hadoop.security.alias.CredentialShell;
 import org.apache.hadoop.yarn.api.records.ApplicationId;
 import org.apache.hadoop.yarn.api.records.ApplicationReport;
 import org.apache.hadoop.yarn.api.records.FinalApplicationStatus;
@@ -43,6 +46,7 @@ import org.apache.slider.api.proto.Messages;
 import org.apache.slider.common.Constants;
 import org.apache.slider.common.SliderExitCodes;
 import org.apache.slider.common.SliderKeys;
+import org.apache.slider.common.params.AbstractActionArgs;
 import org.apache.slider.common.params.AbstractClusterBuildingActionArgs;
 import org.apache.slider.common.params.ActionAMSuicideArgs;
 import org.apache.slider.common.params.ActionCreateArgs;
@@ -107,9 +111,6 @@ import org.apache.slider.server.appmaster.rpc.RpcBinder;
 import org.apache.slider.server.services.curator.CuratorServiceInstance;
 import org.apache.slider.server.services.registry.SliderRegistryService;
 import org.apache.slider.server.services.utility.AbstractSliderLaunchedService;
-
-import static org.apache.slider.common.params.SliderActions.*;
-
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZooDefs;
@@ -125,11 +126,16 @@ import java.io.Writer;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Properties;
 import java.util.Set;
+import java.util.regex.Pattern;
+
+import static org.apache.slider.common.params.SliderActions.*;
 
 /**
  * Client service for Slider
@@ -286,6 +292,12 @@ public class SliderClient extends AbstractSliderLaunchedService implements RunSe
 
     // choose the action
     String action = serviceArgs.getAction();
+    
+    AbstractActionArgs coreAction = serviceArgs.getCoreAction();
+    if (coreAction.getHadoopServicesRequired()) {
+      // validate the client
+      SliderUtils.validateSliderClientEnvironment(null);
+    }
     int exitCode = EXIT_SUCCESS;
     String clusterName = serviceArgs.getClusterName();
     // actions
@@ -343,7 +355,8 @@ public class SliderClient extends AbstractSliderLaunchedService implements RunSe
   /**
    * Delete the zookeeper node associated with the calling user and the cluster
    **/
-  protected boolean deleteZookeeperNode(String clusterName) throws YarnException, IOException {
+  @VisibleForTesting
+  public boolean deleteZookeeperNode(String clusterName) throws YarnException, IOException {
     String user = getUsername();
     String zkPath = ZKIntegration.mkClusterPath(user, clusterName);
     Exception e = null;
@@ -379,7 +392,8 @@ public class SliderClient extends AbstractSliderLaunchedService implements RunSe
   /**
    * Create the zookeeper node associated with the calling user and the cluster
    */
-  protected String createZookeeperNode(String clusterName, Boolean nameOnly) throws YarnException, IOException {
+  @VisibleForTesting
+  public String createZookeeperNode(String clusterName, Boolean nameOnly) throws YarnException, IOException {
     String user = getUsername();
     String zkPath = ZKIntegration.mkClusterPath(user, clusterName);
     if(nameOnly) {
@@ -512,7 +526,51 @@ public class SliderClient extends AbstractSliderLaunchedService implements RunSe
                                                IOException {
 
     actionBuild(clustername, createArgs);
+    Path clusterDirectory = sliderFileSystem.buildClusterDirPath(clustername);
+    AggregateConf instanceDefinition = loadInstanceDefinitionUnresolved(
+        clustername, clusterDirectory);
+    try {
+      checkForCredentials(getConfig(), instanceDefinition.getAppConf());
+    } catch (Exception e) {
+      throw new IOException("problem setting credentials", e);
+    }
     return startCluster(clustername, createArgs);
+  }
+
+  private void checkForCredentials(Configuration conf,
+      ConfTree tree) throws Exception {
+    if (tree.credentials == null || tree.credentials.size()==0) {
+      log.info("No credentials requested");
+      return;
+    }
+    CredentialShell credentialShell = null;
+    for (Entry<String, List<String>> cred : tree.credentials.entrySet()) {
+      String provider = cred.getKey();
+      List<String> aliases = cred.getValue();
+      if (aliases == null || aliases.size()==0) {
+        continue;
+      }
+      if (credentialShell == null) {
+        credentialShell = new CredentialShell();
+        credentialShell.setConf(conf);
+      }
+      Configuration c = new Configuration(conf);
+      c.set(CredentialProviderFactory.CREDENTIAL_PROVIDER_PATH, provider);
+      CredentialProvider credentialProvider =
+          CredentialProviderFactory.getProviders(c).get(0);
+      Set<String> existingAliases = new HashSet<String>(credentialProvider.getAliases());
+      for (String alias : aliases) {
+        if (existingAliases.contains(alias.toLowerCase())) {
+          log.warn("Skipping creation of credentials for {}, " +
+              "alias already exists in {}", alias, provider);
+          continue;
+        }
+        String[] csarg = new String[]{
+            "create", alias, "-provider", provider};
+        log.info("Creating credentials for {} in {}", alias, provider);
+        credentialShell.run(csarg);
+      }
+    }
   }
 
   /**
@@ -564,7 +622,9 @@ public class SliderClient extends AbstractSliderLaunchedService implements RunSe
     // verify that a live cluster isn't there
     SliderUtils.validateClusterName(clustername);
     verifyBindingsDefined();
-    if (!liveClusterAllowed) verifyNoLiveClusters(clustername);
+    if (!liveClusterAllowed) {
+      verifyNoLiveClusters(clustername);
+    }
 
     Configuration conf = getConfig();
     String registryQuorum = lookupZKQuorum();
@@ -702,6 +762,9 @@ public class SliderClient extends AbstractSliderLaunchedService implements RunSe
       appConf.set(AgentKeys.PACKAGE_PATH, buildInfo.packageURI);
     }
 
+    // make any substitutions needed at this stage
+    replaceTokens(appConf.getConfTree(), getUsername(), clustername);
+
     // provider to validate what there is
     try {
       sliderAM.validateInstanceDefinition(builder.getInstanceDescription());
@@ -721,7 +784,36 @@ public class SliderClient extends AbstractSliderLaunchedService implements RunSe
                                          + ": " + e);
     }
   }
-  
+
+  @VisibleForTesting
+  public static void replaceTokens(ConfTree conf,
+      String userName, String clusterName) throws IOException {
+    Map<String,String> newglobal = new HashMap<String,String>();
+    for (Entry<String,String> entry : conf.global.entrySet()) {
+      newglobal.put(entry.getKey(), replaceTokens(entry.getValue(),
+          userName, clusterName));
+    }
+    conf.global.putAll(newglobal);
+
+    Map<String,List<String>> newcred = new HashMap<String,List<String>>();
+    for (Entry<String,List<String>> entry : conf.credentials.entrySet()) {
+      List<String> resultList = new ArrayList<String>();
+      for (String v : entry.getValue()) {
+        resultList.add(replaceTokens(v, userName, clusterName));
+      }
+      newcred.put(replaceTokens(entry.getKey(), userName, clusterName),
+          resultList);
+    }
+    conf.credentials.clear();
+    conf.credentials.putAll(newcred);
+  }
+
+  private static String replaceTokens(String s, String userName,
+      String clusterName) throws IOException {
+    return s.replaceAll(Pattern.quote("${USER}"), userName)
+        .replaceAll(Pattern.quote("${CLUSTER_NAME}"), clusterName);
+  }
+
   public FsPermission getClusterDirectoryPermissions(Configuration conf) {
     String clusterDirPermsOct =
       conf.get(CLUSTER_DIRECTORY_PERMISSIONS,
@@ -1088,7 +1180,7 @@ public class SliderClient extends AbstractSliderLaunchedService implements RunSe
 */
       addConfOptionToCLI(commandLine,
           config,
-          DFSConfigKeys.DFS_NAMENODE_USER_NAME_KEY);
+          DFSConfigKeys.DFS_NAMENODE_KERBEROS_PRINCIPAL_KEY);
     }
     // write out the path output
     commandLine.addOutAndErrFiles(STDOUT_AM, STDERR_AM);
@@ -1182,10 +1274,11 @@ public class SliderClient extends AbstractSliderLaunchedService implements RunSe
    */
   private void propagatePrincipals(Configuration config,
                                    AggregateConf clusterSpec) {
-    String dfsPrincipal = config.get(DFSConfigKeys.DFS_NAMENODE_USER_NAME_KEY);
+    String dfsPrincipal = config.get(
+        DFSConfigKeys.DFS_NAMENODE_KERBEROS_PRINCIPAL_KEY);
     if (dfsPrincipal != null) {
       String siteDfsPrincipal = OptionKeys.SITE_XML_PREFIX +
-                                DFSConfigKeys.DFS_NAMENODE_USER_NAME_KEY;
+                                DFSConfigKeys.DFS_NAMENODE_KERBEROS_PRINCIPAL_KEY;
       clusterSpec.getAppConfOperations().getGlobalOptions().putIfUnset(
         siteDfsPrincipal,
         dfsPrincipal);
@@ -1665,10 +1758,10 @@ public class SliderClient extends AbstractSliderLaunchedService implements RunSe
   }
 
   /**
-   * Freeze the cluster
+   * Stop the cluster
    *
    * @param clustername cluster name
-   * @param freezeArgs arguments to the freeze
+   * @param freezeArgs arguments to the stop
    * @return EXIT_SUCCESS if the cluster was not running by the end of the operation
    */
   public int actionFreeze(String clustername,
@@ -1691,10 +1784,10 @@ public class SliderClient extends AbstractSliderLaunchedService implements RunSe
     if (app == null) {
       // exit early
       log.info("Cluster {} not running", clustername);
-      // not an error to freeze a frozen cluster
+      // not an error to stop a stopped cluster
       return EXIT_SUCCESS;
     }
-    log.debug("App to freeze was found: {}:\n{}", clustername,
+    log.debug("App to stop was found: {}:\n{}", clustername,
               new SliderUtils.OnDemandReportStringifier(app));
     if (app.getYarnApplicationState().ordinal() >=
         YarnApplicationState.FINISHED.ordinal()) {
@@ -1708,7 +1801,7 @@ public class SliderClient extends AbstractSliderLaunchedService implements RunSe
 
     if (forcekill) {
       //escalating to forced kill
-      application.kill("Forced freeze of " + clustername +
+      application.kill("Forced stop of " + clustername +
                        ": " + text);
     } else {
       try {
@@ -1921,12 +2014,9 @@ public class SliderClient extends AbstractSliderLaunchedService implements RunSe
       log.info("Flexing running cluster");
       SliderClusterProtocol appMaster = connect(instance);
       SliderClusterOperations clusterOps = new SliderClusterOperations(appMaster);
-      if (clusterOps.flex(instanceDefinition.getResources())) {
-        log.info("Cluster size updated");
-        exitCode = EXIT_SUCCESS;
-      } else {
-        log.info("Requested size is the same as current size: no change");
-      }
+      clusterOps.flex(instanceDefinition.getResources());
+      log.info("application instance size updated");
+      exitCode = EXIT_SUCCESS;
     } else {
       log.info("No running instance to update");
     }
